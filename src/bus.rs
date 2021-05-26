@@ -1,19 +1,12 @@
-use crate::cpu::CPU;
-
-pub struct Bus<'a> {
-    cpu: CPU<'a>,
+pub struct Bus {
     ram: Box<[u8]>,
 }
 
-impl<'a> Bus<'a> {
+impl Bus {
     pub fn new() -> Self {
-        let mut bus = Bus {
-            cpu: CPU::new(),
+        return Bus {
             ram: Box::new([0; 1024 * 64]),
         };
-
-        bus.cpu.connect_bus(&mut bus);
-        return bus;
     }
 
     pub fn read(&self, address: u16) -> u8 {
