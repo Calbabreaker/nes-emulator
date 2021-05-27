@@ -1,10 +1,9 @@
 mod bus;
 mod cpu;
 
-use crate::bus::Bus;
+use crate::cpu::CPU;
 
 fn main() {
-    let mut bus = Bus::new();
-    bus.write(123, 23);
-    print!("Bus read 123: {}", bus.read(123));
+    let cpu = CPU::new();
+    print!("Bus read 123: {}", cpu.bus.read_byte(123));
 }
