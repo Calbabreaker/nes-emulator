@@ -69,14 +69,11 @@ impl CPU {
     }
 
     pub fn clock(&mut self) {
-        println!("Clock cycles left: {}", self.cycles);
         if self.cycles == 0 {
             let opcode = self.bus.read_byte(self.pc);
             self.pc += 1;
 
-            let (func, addressing_mode, cycles, _) = self.get_instruction_info(opcode);
-            func(self, addressing_mode);
-            self.cycles += cycles;
+            print!("Accumulator: {}", cpu.a);
         }
 
         self.cycles -= 1;
@@ -205,41 +202,15 @@ impl CPU {
 
     // returns: (instruction function pointer, addressing mode, cycles it takes, opcode name)
     fn get_instruction_info(&self, opcode: u8) -> (InstructionFunc, AddressingMode, u8, &str) {
-        println!("Opcode: {:x}", opcode);
         match opcode {
             0xa9 => return (CPU::lda, AddressingMode::Immediate, 2, "lda"),
-            0xa5 => return (CPU::lda, AddressingMode::ZeroPage, 3, "lda"),
-            0xb5 => return (CPU::lda, AddressingMode::ZeroPageX, 4, "lda"),
-            0xad => return (CPU::lda, AddressingMode::Absolute, 4, "lda"),
-            0xbd => return (CPU::lda, AddressingMode::AbsoluteX, 4, "lda"),
-            0xb9 => return (CPU::lda, AddressingMode::AbsoluteY, 4, "lda"),
-            0xa1 => return (CPU::lda, AddressingMode::IndexedIndirect, 6, "lda"),
-            0xb1 => return (CPU::lda, AddressingMode::IndirectIndexed, 5, "lda"),
 
-            0x85 => return (CPU::sta, AddressingMode::ZeroPage, 3, "sta"),
-            0x95 => return (CPU::sta, AddressingMode::ZeroPageX, 4, "sta"),
-            0x8d => return (CPU::sta, AddressingMode::Absolute, 4, "sta"),
-            0x9d => return (CPU::sta, AddressingMode::AbsoluteX, 5, "sta"),
-            0x99 => return (CPU::sta, AddressingMode::AbsoluteY, 5, "sta"),
-            0x81 => return (CPU::sta, AddressingMode::IndexedIndirect, 6, "sta"),
-            0x91 => return (CPU::sta, AddressingMode::IndirectIndexed, 6, "sta"),
-
-            _ => panic!(
-                "Instruction with opcode '0x{:x}' not supported! PC: {}",
-                opcode, self.pc
-            ),
+            _ => panic!("Instruction with opcode {} not supported!", opcode),
         }
     }
 
     fn lda(&mut self, mode: AddressingMode) {
         let (_, data) = self.fetch_data(mode);
         self.a = data;
-        self.set_flag(Flag::Zero, self.a == 0);
-        self.set_flag(Flag::Negative, self.a & (1 << 7) != 0);
-    }
-
-    fn sta(&mut self, mode: AddressingMode) {
-        let (address, _) = self.fetch_data(mode);
-        self.bus.write_byte(address, self.a);
     }
 }
