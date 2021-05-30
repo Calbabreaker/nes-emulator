@@ -22,4 +22,9 @@ impl Bus {
     pub fn write_byte(&mut self, address: u16, data: u8) {
         self.ram[address as usize] = data;
     }
+
+    pub fn write_word(&mut self, address: u16, data: u16) {
+        let low = data as u8;
+        let high = (data << 8) as u8;
+    }
 }

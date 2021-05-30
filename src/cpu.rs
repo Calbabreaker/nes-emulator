@@ -59,7 +59,7 @@ impl CPU {
 
     pub fn reset(&mut self) {
         self.pc = self.bus.read_word(0xfffc);
-        self.sp = 0xfd;
+        self.sp = 0xff;
         self.a = 0;
         self.x = 0;
         self.y = 0;
@@ -94,7 +94,7 @@ impl CPU {
         }
     }
 
-    fn set_zero_negative_flag(&mut self, value: u8) {
+    fn set_flag_zero_negative(&mut self, value: u8) {
         self.set_flag(Flag::Zero, value == 0);
         self.set_flag(Flag::Negative, value & 0x80 != 0);
     }
@@ -319,7 +319,7 @@ impl CPU {
             0x01 => return (CPU::ora, AddressingMode::IndexedIndirect, 6, "ora"),
             0x11 => return (CPU::ora, AddressingMode::IndirectIndexed, 5, "ora"),
 
-            // arithmitic operations
+            // arithmetic operations
             0x69 => return (CPU::adc, AddressingMode::Immediate, 2, "adc"),
             0x6d => return (CPU::adc, AddressingMode::Absolute, 4, "adc"),
             0x7d => return (CPU::adc, AddressingMode::AbsoluteX, 4, "adc"),
@@ -328,6 +328,15 @@ impl CPU {
             0x75 => return (CPU::adc, AddressingMode::ZeroPageX, 4, "adc"),
             0x61 => return (CPU::adc, AddressingMode::IndexedIndirect, 6, "adc"),
             0x71 => return (CPU::adc, AddressingMode::IndirectIndexed, 5, "adc"),
+
+            0xe9 => return (CPU::sbc, AddressingMode::Immediate, 2, "sbc"),
+            0xed => return (CPU::sbc, AddressingMode::Absolute, 4, "sbc"),
+            0xfd => return (CPU::sbc, AddressingMode::AbsoluteX, 4, "sbc"),
+            0xf9 => return (CPU::sbc, AddressingMode::AbsoluteY, 4, "sbc"),
+            0xe5 => return (CPU::sbc, AddressingMode::ZeroPage, 3, "sbc"),
+            0xf5 => return (CPU::sbc, AddressingMode::ZeroPageX, 4, "sbc"),
+            0xe1 => return (CPU::sbc, AddressingMode::IndexedIndirect, 6, "sbc"),
+            0xf1 => return (CPU::sbc, AddressingMode::IndirectIndexed, 5, "sbc"),
 
             0xc9 => return (CPU::cmp, AddressingMode::Immediate, 2, "cmp"),
             0xcd => return (CPU::cmp, AddressingMode::Absolute, 4, "cmp"),
@@ -346,14 +355,14 @@ impl CPU {
             0xcc => return (CPU::cpy, AddressingMode::Absolute, 4, "cpy"),
             0xc4 => return (CPU::cpy, AddressingMode::ZeroPage, 3, "cpy"),
 
-            0xe9 => return (CPU::sbc, AddressingMode::Immediate, 2, "sbc"),
-            0xed => return (CPU::sbc, AddressingMode::Absolute, 4, "sbc"),
-            0xfd => return (CPU::sbc, AddressingMode::AbsoluteX, 4, "sbc"),
-            0xf9 => return (CPU::sbc, AddressingMode::AbsoluteY, 4, "sbc"),
-            0xe5 => return (CPU::sbc, AddressingMode::ZeroPage, 3, "sbc"),
-            0xf5 => return (CPU::sbc, AddressingMode::ZeroPageX, 4, "sbc"),
-            0xe1 => return (CPU::sbc, AddressingMode::IndexedIndirect, 6, "sbc"),
-            0xf1 => return (CPU::sbc, AddressingMode::IndirectIndexed, 5, "sbc"),
+            // increment
+            0xee => return (CPU::inc, AddressingMode::Absolute, 6, "inc"),
+            0xfe => return (CPU::inc, AddressingMode::AbsoluteX, 7, "inc"),
+            0xe6 => return (CPU::inc, AddressingMode::ZeroPage, 5, "inc"),
+            0xf6 => return (CPU::inc, AddressingMode::ZeroPageX, 6, "inc"),
+
+            0xe8 => return (CPU::inx, AddressingMode::Implied, 2, "inx"),
+            0xc8 => return (CPU::iny, AddressingMode::Implied, 2, "iny"),
 
             // decrement
             0xce => return (CPU::dec, AddressingMode::Absolute, 6, "dec"),
@@ -364,15 +373,6 @@ impl CPU {
             0xca => return (CPU::dex, AddressingMode::Implied, 2, "dex"),
             0x88 => return (CPU::dey, AddressingMode::Implied, 2, "dey"),
 
-            // increment
-            0xee => return (CPU::inc, AddressingMode::Absolute, 6, "inc"),
-            0xfe => return (CPU::inc, AddressingMode::AbsoluteX, 7, "inc"),
-            0xe6 => return (CPU::inc, AddressingMode::ZeroPage, 5, "inc"),
-            0xf6 => return (CPU::inc, AddressingMode::ZeroPageX, 6, "inc"),
-
-            0xe8 => return (CPU::inx, AddressingMode::Implied, 2, "inx"),
-            0xc8 => return (CPU::iny, AddressingMode::Implied, 2, "iny"),
-
             // control operations
             0x4c => return (CPU::jmp, AddressingMode::Absolute, 3, "jmp"),
             0x6c => return (CPU::jmp, AddressingMode::Indirect, 5, "jmp"),
@@ -382,7 +382,7 @@ impl CPU {
             0x40 => return (CPU::rti, AddressingMode::Implied, 6, "rti"),
             0x60 => return (CPU::rts, AddressingMode::Implied, 6, "rts"),
 
-            // break operations
+            // branch operations
             0x90 => return (CPU::bcc, AddressingMode::Relative, 2, "bcc"),
             0xb0 => return (CPU::bcs, AddressingMode::Relative, 2, "bcs"),
             0xf0 => return (CPU::beq, AddressingMode::Relative, 2, "beq"),
@@ -411,21 +411,23 @@ impl CPU {
         }
     }
 
+    // begin instructions!
+
     fn lda(&mut self, mode: AddressingMode) {
         let (_, data) = self.fetch_data(mode, true);
-        self.set_zero_negative_flag(data);
+        self.set_flag_zero_negative(data);
         self.a = data;
     }
 
     fn ldx(&mut self, mode: AddressingMode) {
         let (_, data) = self.fetch_data(mode, true);
-        self.set_zero_negative_flag(data);
+        self.set_flag_zero_negative(data);
         self.x = data;
     }
 
     fn ldy(&mut self, mode: AddressingMode) {
         let (_, data) = self.fetch_data(mode, true);
-        self.set_zero_negative_flag(data);
+        self.set_flag_zero_negative(data);
         self.y = data;
     }
 
@@ -446,32 +448,138 @@ impl CPU {
 
     fn tax(&mut self, mode: AddressingMode) {
         self.x = self.a;
-        self.set_zero_negative_flag(self.x);
+        self.set_flag_zero_negative(self.x);
     }
 
     fn tay(&mut self, mode: AddressingMode) {
         self.y = self.a;
-        self.set_zero_negative_flag(self.y);
+        self.set_flag_zero_negative(self.y);
     }
 
     fn tsx(&mut self, mode: AddressingMode) {
         self.x = self.sp;
-        self.set_zero_negative_flag(self.x);
+        self.set_flag_zero_negative(self.x);
     }
 
     fn txa(&mut self, mode: AddressingMode) {
         self.a = self.x;
-        self.set_zero_negative_flag(self.a);
+        self.set_flag_zero_negative(self.a);
     }
 
     fn txs(&mut self, mode: AddressingMode) {
         self.sp = self.x;
-        self.set_zero_negative_flag(self.sp);
+        self.set_flag_zero_negative(self.sp);
     }
 
     fn tya(&mut self, mode: AddressingMode) {
         self.a = self.y;
-        self.set_zero_negative_flag(self.a);
+        self.set_flag_zero_negative(self.a);
+    }
+
+    fn pha(&mut self, mode: AddressingMode) {
+        self.bus.write_byte(0x0100 + self.sp as u16, self.a);
+        self.sp -= 1;
+    }
+
+    fn php(&mut self, mode: AddressingMode) {
+        self.bus.write_byte(0x0100 + self.sp as u16, self.flags);
+        self.sp -= 1;
+    }
+
+    fn pla(&mut self, mode: AddressingMode) {
+        self.sp += 1;
+        let data = self.bus.read_byte(0x0100 + self.sp as u16);
+        self.a = data;
+        self.set_flag_zero_negative(self.a);
+    }
+
+    fn plp(&mut self, mode: AddressingMode) {
+        self.sp += 1;
+        let data = self.bus.read_byte(0x0100 + self.sp as u16);
+        self.flags = data;
+    }
+
+    fn asl(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = data << 1;
+
+        self.set_flag(Flag::Carry, data & 0x80 != 0);
+        self.set_flag_zero_negative(result);
+
+        if matches!(mode, AddressingMode::Accumulator) {
+            self.a = result;
+        } else {
+            self.bus.write_byte(address, result);
+        }
+    }
+
+    fn lsr(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = data >> 1;
+
+        self.set_flag(Flag::Carry, data & 0x01 != 0);
+        self.set_flag_zero_negative(result);
+
+        if matches!(mode, AddressingMode::Accumulator) {
+            self.a = result;
+        } else {
+            self.bus.write_byte(address, result);
+        }
+    }
+
+    fn rol(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = (data << 1) | self.get_flag(Flag::Carry) as u8;
+
+        self.set_flag(Flag::Carry, data & 0x80 != 0);
+        self.set_flag_zero_negative(result);
+
+        if matches!(mode, AddressingMode::Accumulator) {
+            self.a = result;
+        } else {
+            self.bus.write_byte(address, result);
+        }
+    }
+
+    fn ror(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = (data >> 1) | (self.get_flag(Flag::Carry) as u8) << 7;
+
+        self.set_flag(Flag::Carry, data & 0x01 != 0);
+        self.set_flag_zero_negative(result);
+
+        if matches!(mode, AddressingMode::Accumulator) {
+            self.a = result;
+        } else {
+            self.bus.write_byte(address, result);
+        }
+    }
+
+    fn and(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, true);
+        self.a &= data;
+        self.set_flag_zero_negative(self.a);
+    }
+
+    fn bit(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, false);
+        let result = self.a & data;
+
+        self.set_flag(Flag::Zero, result == 0);
+        self.set_flag(Flag::Overflow, data & (1 << 6) != 0);
+        self.set_flag(Flag::Negative, data & (1 << 7) != 0);
+    }
+
+    fn eor(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, true);
+        self.a ^= data;
+        self.set_flag_zero_negative(self.a);
+    }
+
+    fn ora(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, true);
+        self.a |= data;
+        self.set_flag_zero_negative(self.a);
     }
 
     fn adc(&mut self, mode: AddressingMode) {
@@ -480,7 +588,7 @@ impl CPU {
         let result_word = self.a as u16 + data as u16 + self.get_flag(Flag::Carry) as u16;
         let result = result_word as u8;
 
-        self.set_zero_negative_flag(result);
+        self.set_flag_zero_negative(result);
         self.set_flag(Flag::Carry, result_word > 0xff);
         self.set_flag(
             Flag::Overflow,
@@ -488,6 +596,101 @@ impl CPU {
         );
 
         self.a = result;
+    }
+
+    fn sbc(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, true);
+
+        // invert data and use the same code as adc
+        data = !data;
+
+        let result_word = self.a as u16 + data as u16 + self.get_flag(Flag::Carry) as u16;
+        let result = result_word as u8;
+
+        self.set_flag_zero_negative(result);
+        self.set_flag(Flag::Carry, result_word > 0xff);
+        self.set_flag(
+            Flag::Overflow,
+            (!(self.a ^ data) & (self.a ^ result)) & 0x80 != 0,
+        );
+
+        self.a = result;
+    }
+
+    fn cmp(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, true);
+        let result = self.a - data;
+
+        self.set_flag(Flag::Carry, self.a >= result);
+        self.set_flag_zero_negative(result);
+    }
+
+    fn cpx(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, false);
+        let result = self.x - data;
+
+        self.set_flag(Flag::Carry, self.x >= result);
+        self.set_flag_zero_negative(result);
+    }
+
+    fn cpy(&mut self, mode: AddressingMode) {
+        let (_, data) = self.fetch_data(mode, false);
+        let result = self.y - data;
+
+        self.set_flag(Flag::Carry, self.y >= result);
+        self.set_flag_zero_negative(result);
+    }
+
+    fn inc(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = data + 1;
+
+        self.set_flag_zero_negative(result);
+        self.bus.write_byte(address, result);
+    }
+
+    fn inx(&mut self, mode: AddressingMode) {
+        self.x += 1;
+        self.set_flag_zero_negative(self.x);
+    }
+
+    fn iny(&mut self, mode: AddressingMode) {
+        self.y += 1;
+        self.set_flag_zero_negative(self.y);
+    }
+
+    fn dec(&mut self, mode: AddressingMode) {
+        let (address, data) = self.fetch_data(mode, false);
+        let result = data - 1;
+
+        self.set_flag_zero_negative(result);
+        self.bus.write_byte(address, result);
+    }
+
+    fn dex(&mut self, mode: AddressingMode) {
+        self.x -= 1;
+        self.set_flag_zero_negative(self.x);
+    }
+
+    fn dey(&mut self, mode: AddressingMode) {
+        self.y -= 1;
+        self.set_flag_zero_negative(self.y);
+    }
+
+    fn jmp(&mut self, mode: AddressingMode) {
+        let (address, _) = self.fetch_data(mode, false);
+        self.pc = address;
+    }
+
+    fn brk(&mut self, mode: AddressingMode) {
+        self.bus.write_word(0x0100 + (self.sp as u16), self.pc);
+        self.sp -= 2;
+
+        let flags = self.flags | Flag::Break as u8;
+        self.bus.write_byte(0x0100 + (self.sp as u16), flags);
+        self.sp -= 1;
+
+        self.pc = self.bus.read_word(0xfffe);
     }
 
     fn nop(&mut self, mode: AddressingMode) {
