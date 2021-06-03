@@ -132,6 +132,7 @@ impl CPU {
                 let data_at_pc = (self.bus.read_byte(self.pc) as i8) as i16;
                 let address = (self.pc as i16 + data_at_pc) as u16;
                 self.pc += 1;
+
                 return (address, self.bus.read_byte(address));
             }
 
@@ -159,6 +160,7 @@ impl CPU {
                 let address = address_abs + self.y as u16;
                 self.pc += 2;
 
+                // some instructions need additional clock cycle when changing page
                 if add_cycles && address & 0xff00 != address_abs & 0xff00 {
                     self.cycles += 1;
                 }
@@ -691,6 +693,31 @@ impl CPU {
         self.sp -= 1;
 
         self.pc = self.bus.read_word(0xfffe);
+    }
+
+    fn jsr(&mut self, mode: AddressingMode) {
+        let (address, _) = self.fetch_data(mode, false);
+
+        self.pc -= 1;
+        self.bus.write_word(0x0100 + (self.sp as u16), self.pc);
+        self.sp -= 2;
+
+        self.pc = address;
+    }
+
+    fn rti(&mut self, mode: AddressingMode) {
+        let (address, _) = self.fetch_data(mode, false);
+
+        self.bus.write_byte(0x0100 + self.sp as u16, self.flags);
+        self.sp += 1;
+        self.pc = self.bus.read_word(0x0100 + self.sp as u16);
+        self.sp += 2;
+    }
+
+    fn rts(&mut self, mode: AddressingMode) {
+        self.pc = self.bus.read_word(0x0100 + self.sp as u16);
+        self.sp += 2;
+        self.pc += 1;
     }
 
     fn nop(&mut self, mode: AddressingMode) {
