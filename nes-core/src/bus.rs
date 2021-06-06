@@ -15,6 +15,12 @@ impl Bus {
         self.cycles_count += 1;
     }
 
+    pub fn clock_multiple(&mut self, times: u8) {
+        for _ in 0..times {
+            self.clock();
+        }
+    }
+
     pub fn read_byte(&mut self, address: u16) -> u8 {
         self.clock();
         self.ram[address as usize]

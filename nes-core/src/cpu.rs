@@ -16,7 +16,6 @@ enum Mode {
     ZeroPage,
     ZeroPageX,
     ZeroPageY,
-    Relative,
     Absolute,
     AbsoluteX,
     AbsoluteXForceClock,
@@ -42,7 +41,7 @@ pub struct CPU {
 
 impl CPU {
     pub fn new() -> Self {
-        return CPU {
+        CPU {
             bus: Bus::new(),
             pc: 0,
             sp: 0,
@@ -50,20 +49,28 @@ impl CPU {
             x: 0,
             y: 0,
             flags: 0,
-        };
+        }
     }
 
     pub fn reset(&mut self) {
-        self.pc = self.bus.read_word(0xfffc);
         self.sp = 0xff;
         self.a = 0;
         self.x = 0;
         self.y = 0;
         self.flags = 0;
         self.set_flag(Flag::Unused, true);
-        for _ in 1..8 {
-            self.bus.clock();
+        self.bus.clock_multiple(5);
+        self.pc = self.bus.read_word(0xfffc);
+    }
+
+    pub fn irq(&mut self) {
+        if !self.get_flag(Flag::InterruptDisable) {
+            self.do_interrupt();
         }
+    }
+
+    pub fn nmi(&mut self) {
+        self.do_interrupt();
     }
 
     pub fn execute_next_instruction(&mut self) {
@@ -74,7 +81,7 @@ impl CPU {
 
     // helper flag funtions
     fn get_flag(&self, flag: Flag) -> bool {
-        return self.flags & (flag as u8) != 0;
+        self.flags & (flag as u8) != 0
     }
 
     fn set_flag(&mut self, flag: Flag, status: bool) {
@@ -110,6 +117,14 @@ impl CPU {
         self.pop_byte() as u16 | (self.pop_byte() as u16) << 8
     }
 
+    fn do_interrupt(&mut self) {
+        self.push_word(self.pc);
+        self.set_flag(Flag::InterruptDisable, true);
+        self.push_byte(self.flags);
+        self.bus.clock_multiple(2);
+        self.pc = self.bus.read_word(0xfffe);
+    }
+
     fn read_operand_address(&mut self, mode: Mode) -> u16 {
         match mode {
             Mode::Immediate => {
@@ -135,13 +150,6 @@ impl CPU {
                 let address = (self.bus.read_byte(self.pc) + self.y) as u16;
                 self.pc += 1;
                 self.bus.clock();
-                address
-            }
-
-            Mode::Relative => {
-                let data_at_pc = (self.bus.read_byte(self.pc) as i8) as i16;
-                let address = (self.pc as i16 + data_at_pc) as u16;
-                self.pc += 1;
                 address
             }
 
@@ -405,23 +413,23 @@ impl CPU {
             0x60 => self.rts(),
 
             // branch operations
-            // 0x90 => self.bcc(AdressingMode::Relative),
-            // 0xb0 => self.bcs(AdressingMode::Relative),
-            // 0xf0 => self.beq(AdressingMode::Relative),
-            // 0x30 => self.bmi(AdressingMode::Relative),
-            // 0xd0 => self.bne(AdressingMode::Relative),
-            // 0x10 => self.bpl(AdressingMode::Relative),
-            // 0x50 => self.bvc(AdressingMode::Relative),
-            // 0x70 => self.bvs(AdressingMode::Relative),
+            0x90 => self.bcc(),
+            0xb0 => self.bcs(),
+            0xf0 => self.beq(),
+            0x30 => self.bmi(),
+            0xd0 => self.bne(),
+            0x10 => self.bpl(),
+            0x50 => self.bvc(),
+            0x70 => self.bvs(),
 
             // // flag operations
-            // 0x18 => self.clc(),
-            // 0xd8 => self.cld(),
-            // 0x58 => self.cli(),
-            // 0xb8 => self.clv(),
-            // 0x38 => self.sec(),
-            // 0xf8 => self.sed(),
-            // 0x78 => self.sei(),
+            0x18 => self.clc(),
+            0xd8 => self.cld(),
+            0x58 => self.cli(),
+            0xb8 => self.clv(),
+            0x38 => self.sec(),
+            0xf8 => self.sed(),
+            0x78 => self.sei(),
 
             // does nothing
             0xea => self.nop(),
@@ -436,19 +444,19 @@ impl CPU {
     // begin instructions!
 
     fn lda(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.set_flag_zero_negative(data);
         self.a = data;
     }
 
     fn ldx(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.set_flag_zero_negative(data);
         self.x = data;
     }
 
     fn ldy(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.set_flag_zero_negative(data);
         self.y = data;
     }
@@ -471,31 +479,37 @@ impl CPU {
     fn tax(&mut self) {
         self.x = self.a;
         self.set_flag_zero_negative(self.x);
+        self.bus.clock();
     }
 
     fn tay(&mut self) {
         self.y = self.a;
         self.set_flag_zero_negative(self.y);
+        self.bus.clock();
     }
 
     fn tsx(&mut self) {
         self.x = self.sp;
         self.set_flag_zero_negative(self.x);
+        self.bus.clock();
     }
 
     fn txa(&mut self) {
         self.a = self.x;
         self.set_flag_zero_negative(self.a);
+        self.bus.clock();
     }
 
     fn txs(&mut self) {
         self.sp = self.x;
         self.set_flag_zero_negative(self.sp);
+        self.bus.clock();
     }
 
     fn tya(&mut self) {
         self.a = self.y;
         self.set_flag_zero_negative(self.a);
+        self.bus.clock();
     }
 
     fn pha(&mut self) {
@@ -519,7 +533,8 @@ impl CPU {
         let result = data << 1;
         self.set_flag(Flag::Carry, data & 0x80 != 0);
         self.set_flag_zero_negative(result);
-        return result;
+        self.bus.clock();
+        result
     }
 
     fn asl(&mut self, mode: Mode) {
@@ -536,6 +551,7 @@ impl CPU {
         let result = data >> 1;
         self.set_flag(Flag::Carry, data & 0x01 != 0);
         self.set_flag_zero_negative(result);
+        self.bus.clock();
         result
     }
 
@@ -553,6 +569,7 @@ impl CPU {
         let result = (data << 1) | self.get_flag(Flag::Carry) as u8;
         self.set_flag(Flag::Carry, data & 0x80 != 0);
         self.set_flag_zero_negative(result);
+        self.bus.clock();
         result
     }
 
@@ -570,7 +587,8 @@ impl CPU {
         let result = (data >> 1) | (self.get_flag(Flag::Carry) as u8) << 7;
         self.set_flag(Flag::Carry, data & 0x01 != 0);
         self.set_flag_zero_negative(result);
-        return result;
+        self.bus.clock();
+        result
     }
 
     fn ror(&mut self, mode: Mode) {
@@ -584,13 +602,13 @@ impl CPU {
     }
 
     fn and(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.a &= data;
         self.set_flag_zero_negative(self.a);
     }
 
     fn bit(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         let result = self.a & data;
 
         self.set_flag(Flag::Zero, result == 0);
@@ -599,13 +617,13 @@ impl CPU {
     }
 
     fn eor(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.a ^= data;
         self.set_flag_zero_negative(self.a);
     }
 
     fn ora(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.a |= data;
         self.set_flag_zero_negative(self.a);
     }
@@ -625,19 +643,19 @@ impl CPU {
     }
 
     fn adc(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         self.do_adc(data);
     }
 
     fn sbc(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
 
         // invert data and use the same code as adc
         self.do_adc(!data);
     }
 
     fn cmp(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         let result = self.a - data;
 
         self.set_flag(Flag::Carry, self.a >= result);
@@ -645,7 +663,7 @@ impl CPU {
     }
 
     fn cpx(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         let result = self.x - data;
 
         self.set_flag(Flag::Carry, self.x >= result);
@@ -653,7 +671,7 @@ impl CPU {
     }
 
     fn cpy(&mut self, mode: Mode) {
-        let (data, _) = self.read_operand(mode);
+        let data = self.read_operand(mode).0;
         let result = self.y - data;
 
         self.set_flag(Flag::Carry, self.y >= result);
@@ -665,17 +683,20 @@ impl CPU {
         let result = data + 1;
 
         self.set_flag_zero_negative(result);
+        self.bus.clock();
         self.bus.write_byte(address, result);
     }
 
     fn inx(&mut self) {
         self.x += 1;
         self.set_flag_zero_negative(self.x);
+        self.bus.clock();
     }
 
     fn iny(&mut self) {
         self.y += 1;
         self.set_flag_zero_negative(self.y);
+        self.bus.clock();
     }
 
     fn dec(&mut self, mode: Mode) {
@@ -683,17 +704,20 @@ impl CPU {
         let result = data - 1;
 
         self.set_flag_zero_negative(result);
+        self.bus.clock();
         self.bus.write_byte(address, result);
     }
 
     fn dex(&mut self) {
         self.x -= 1;
         self.set_flag_zero_negative(self.x);
+        self.bus.clock();
     }
 
     fn dey(&mut self) {
         self.y -= 1;
         self.set_flag_zero_negative(self.y);
+        self.bus.clock();
     }
 
     fn jmp(&mut self, mode: Mode) {
@@ -728,7 +752,90 @@ impl CPU {
         self.pc += 1;
     }
 
+    fn branch(&mut self, condition: bool) {
+        if condition {
+            self.bus.clock();
+
+            // interpret address as signed
+            let offset = self.read_operand(Mode::Immediate).0 as i8 as i16;
+            let address = (self.pc as i16 + offset) as u16;
+
+            if address & 0xff00 != self.pc & 0xff00 {
+                self.bus.clock()
+            }
+
+            self.pc = address;
+        }
+    }
+
+    fn bcc(&mut self) {
+        self.branch(!self.get_flag(Flag::Carry));
+    }
+
+    fn bcs(&mut self) {
+        self.branch(self.get_flag(Flag::Carry));
+    }
+
+    fn beq(&mut self) {
+        self.branch(self.get_flag(Flag::Zero));
+    }
+
+    fn bmi(&mut self) {
+        self.branch(self.get_flag(Flag::Negative));
+    }
+
+    fn bne(&mut self) {
+        self.branch(!self.get_flag(Flag::Zero));
+    }
+
+    fn bpl(&mut self) {
+        self.branch(!self.get_flag(Flag::Negative));
+    }
+
+    fn bvc(&mut self) {
+        self.branch(!self.get_flag(Flag::Overflow));
+    }
+
+    fn bvs(&mut self) {
+        self.branch(self.get_flag(Flag::Overflow));
+    }
+
+    fn clc(&mut self) {
+        self.set_flag(Flag::Carry, false);
+        self.bus.clock();
+    }
+
+    fn cld(&mut self) {
+        self.set_flag(Flag::DecimalMode, false);
+        self.bus.clock();
+    }
+
+    fn cli(&mut self) {
+        self.set_flag(Flag::InterruptDisable, false);
+        self.bus.clock();
+    }
+
+    fn clv(&mut self) {
+        self.set_flag(Flag::Overflow, false);
+        self.bus.clock();
+    }
+
+    fn sec(&mut self) {
+        self.set_flag(Flag::Carry, true);
+        self.bus.clock();
+    }
+
+    fn sed(&mut self) {
+        self.set_flag(Flag::DecimalMode, true);
+        self.bus.clock();
+    }
+
+    fn sei(&mut self) {
+        self.set_flag(Flag::InterruptDisable, true);
+        self.bus.clock();
+    }
+
     fn nop(&mut self) {
-        // does nothing
+        self.bus.clock();
     }
 }
