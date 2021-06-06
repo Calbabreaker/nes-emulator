@@ -11,7 +11,7 @@ enum Flag {
     Negative = 1 << 7,
 }
 
-enum AdressingMode {
+enum Mode {
     Immediate,
     ZeroPage,
     ZeroPageX,
@@ -19,10 +19,13 @@ enum AdressingMode {
     Relative,
     Absolute,
     AbsoluteX,
+    AbsoluteXForceClock,
     AbsoluteY,
+    AbsoluteYForceClock,
     Indirect,
     IndirectX,
     IndirectY,
+    IndirectYForceClock,
 }
 
 pub struct CPU {
@@ -107,72 +110,77 @@ impl CPU {
         self.pop_byte() as u16 | (self.pop_byte() as u16) << 8
     }
 
-    fn read_operand_address(&mut self, mode: AdressingMode) -> u16 {
+    fn read_operand_address(&mut self, mode: Mode) -> u16 {
         match mode {
-            AdressingMode::Immediate => {
+            Mode::Immediate => {
                 let address = self.pc;
                 self.pc += 1;
                 address
             }
 
-            AdressingMode::ZeroPage => {
+            Mode::ZeroPage => {
                 let address = self.bus.read_byte(self.pc) as u16;
                 self.pc += 1;
                 address
             }
 
-            AdressingMode::ZeroPageX => {
+            Mode::ZeroPageX => {
                 let address = (self.bus.read_byte(self.pc) + self.x) as u16;
                 self.pc += 1;
+                self.bus.clock();
                 address
             }
 
-            AdressingMode::ZeroPageY => {
+            Mode::ZeroPageY => {
                 let address = (self.bus.read_byte(self.pc) + self.y) as u16;
                 self.pc += 1;
+                self.bus.clock();
                 address
             }
 
-            AdressingMode::Relative => {
+            Mode::Relative => {
                 let data_at_pc = (self.bus.read_byte(self.pc) as i8) as i16;
                 let address = (self.pc as i16 + data_at_pc) as u16;
                 self.pc += 1;
                 address
             }
 
-            AdressingMode::Absolute => {
+            Mode::Absolute => {
                 let address = self.bus.read_word(self.pc);
                 self.pc += 2;
                 address
             }
 
-            AdressingMode::AbsoluteX => {
+            Mode::AbsoluteX | Mode::AbsoluteXForceClock => {
                 let address_abs = self.bus.read_word(self.pc);
                 let address = address_abs + self.x as u16;
                 self.pc += 2;
 
                 // some instructions need additional clock cycle when changing page
-                // if add_cycles && address & 0xff00 != address_abs & 0xff00 {
-                //     self.cycles += 1;
-                // }
+                if matches!(mode, Mode::AbsoluteXForceClock)
+                    || address & 0xff00 != address_abs & 0xff00
+                {
+                    self.bus.clock()
+                }
 
                 address
             }
 
-            AdressingMode::AbsoluteY => {
+            Mode::AbsoluteY | Mode::AbsoluteYForceClock => {
                 let address_abs = self.bus.read_word(self.pc);
                 let address = address_abs + self.y as u16;
                 self.pc += 2;
 
-                // some instructions need additional clock cycle when changing page
-                // if add_cycles && address & 0xff00 != address_abs & 0xff00 {
-                //     self.cycles += 1;
-                // }
+                if matches!(mode, Mode::AbsoluteYForceClock)
+                    || address & 0xff00 != address_abs & 0xff00
+                {
+                    self.bus.clock()
+                }
 
                 address
             }
 
-            AdressingMode::Indirect => {
+            Mode::Indirect => {
                 let pointer = self.bus.read_word(self.pc);
                 self.pc += 2;
 
@@ -189,23 +197,25 @@ impl CPU {
                 address
             }
 
-            AdressingMode::IndirectX => {
+            Mode::IndirectX => {
                 let pointer = (self.bus.read_byte(self.pc) + self.x) as u16;
                 let address = self.bus.read_word(pointer);
                 self.pc += 1;
-
+                self.bus.clock();
                 address
             }
 
-            AdressingMode::IndirectY => {
+            Mode::IndirectY | Mode::IndirectYForceClock => {
                 let pointer = self.bus.read_byte(self.pc) as u16;
                 let address_abs = self.bus.read_word(pointer);
                 let address = address_abs + self.y as u16;
                 self.pc += 1;
 
-                // if add_cycles && address & 0xff00 != address_abs & 0xff00 {
-                //     self.cycles += 1;
-                // }
+                if matches!(mode, Mode::IndirectYForceClock)
+                    || address & 0xff00 != address_abs & 0xff00
+                {
+                    self.bus.clock()
+                }
 
                 address
             }
@@ -213,7 +223,7 @@ impl CPU {
     }
 
     // returns (data, address)
-    fn read_operand(&mut self, mode: AdressingMode) -> (u8, u16) {
+    fn read_operand(&mut self, mode: Mode) -> (u8, u16) {
         let address = self.read_operand_address(mode);
         let data = self.bus.read_byte(address);
         (data, address)
@@ -223,43 +233,43 @@ impl CPU {
         println!("Opcode: {:x}", opcode);
         match opcode {
             // register loads
-            0xa9 => self.lda(AdressingMode::Immediate),
-            0xad => self.lda(AdressingMode::Absolute),
-            0xbd => self.lda(AdressingMode::AbsoluteX),
-            0xb9 => self.lda(AdressingMode::AbsoluteY),
-            0xa5 => self.lda(AdressingMode::ZeroPage),
-            0xb5 => self.lda(AdressingMode::ZeroPageX),
-            0xa1 => self.lda(AdressingMode::IndirectX),
-            0xb1 => self.lda(AdressingMode::IndirectY),
+            0xa9 => self.lda(Mode::Immediate),
+            0xad => self.lda(Mode::Absolute),
+            0xbd => self.lda(Mode::AbsoluteX),
+            0xb9 => self.lda(Mode::AbsoluteY),
+            0xa5 => self.lda(Mode::ZeroPage),
+            0xb5 => self.lda(Mode::ZeroPageX),
+            0xa1 => self.lda(Mode::IndirectX),
+            0xb1 => self.lda(Mode::IndirectY),
 
-            0xa2 => self.ldx(AdressingMode::Immediate),
-            0xae => self.ldx(AdressingMode::Absolute),
-            0xbe => self.ldx(AdressingMode::AbsoluteY),
-            0xa6 => self.ldx(AdressingMode::ZeroPage),
-            0xb6 => self.ldx(AdressingMode::ZeroPageY),
+            0xa2 => self.ldx(Mode::Immediate),
+            0xae => self.ldx(Mode::Absolute),
+            0xbe => self.ldx(Mode::AbsoluteY),
+            0xa6 => self.ldx(Mode::ZeroPage),
+            0xb6 => self.ldx(Mode::ZeroPageY),
 
-            0xa0 => self.ldy(AdressingMode::Immediate),
-            0xac => self.ldy(AdressingMode::Absolute),
-            0xbc => self.ldy(AdressingMode::AbsoluteX),
-            0xa4 => self.ldy(AdressingMode::ZeroPage),
-            0xb4 => self.ldy(AdressingMode::ZeroPageX),
+            0xa0 => self.ldy(Mode::Immediate),
+            0xac => self.ldy(Mode::Absolute),
+            0xbc => self.ldy(Mode::AbsoluteX),
+            0xa4 => self.ldy(Mode::ZeroPage),
+            0xb4 => self.ldy(Mode::ZeroPageX),
 
             // register stores
-            0x8d => self.sta(AdressingMode::Absolute),
-            0x9d => self.sta(AdressingMode::AbsoluteX),
-            0x99 => self.sta(AdressingMode::AbsoluteY),
-            0x85 => self.sta(AdressingMode::ZeroPage),
-            0x95 => self.sta(AdressingMode::ZeroPageX),
-            0x81 => self.sta(AdressingMode::IndirectX),
-            0x91 => self.sta(AdressingMode::IndirectY),
+            0x8d => self.sta(Mode::Absolute),
+            0x9d => self.sta(Mode::AbsoluteXForceClock),
+            0x99 => self.sta(Mode::AbsoluteYForceClock),
+            0x85 => self.sta(Mode::ZeroPage),
+            0x95 => self.sta(Mode::ZeroPageX),
+            0x81 => self.sta(Mode::IndirectX),
+            0x91 => self.sta(Mode::IndirectYForceClock),
 
-            0x8e => self.stx(AdressingMode::Absolute),
-            0x86 => self.stx(AdressingMode::ZeroPage),
-            0x96 => self.stx(AdressingMode::ZeroPageY),
+            0x8e => self.stx(Mode::Absolute),
+            0x86 => self.stx(Mode::ZeroPage),
+            0x96 => self.stx(Mode::ZeroPageY),
 
-            0x8c => self.sty(AdressingMode::Absolute),
-            0x84 => self.sty(AdressingMode::ZeroPage),
-            0x94 => self.sty(AdressingMode::ZeroPageX),
+            0x8c => self.sty(Mode::Absolute),
+            0x84 => self.sty(Mode::ZeroPage),
+            0x94 => self.sty(Mode::ZeroPageX),
 
             // register transfers
             0xaa => self.tax(),
@@ -275,122 +285,122 @@ impl CPU {
             0x68 => self.pla(),
             0x28 => self.plp(),
 
-            // shift operations
+            // shift and rotate operations
             0x0a => self.asl_a(),
-            0x0e => self.asl(AdressingMode::Absolute),
-            0x1e => self.asl(AdressingMode::AbsoluteX),
-            0x06 => self.asl(AdressingMode::ZeroPage),
-            0x16 => self.asl(AdressingMode::ZeroPageX),
+            0x0e => self.asl(Mode::Absolute),
+            0x1e => self.asl(Mode::AbsoluteXForceClock),
+            0x06 => self.asl(Mode::ZeroPage),
+            0x16 => self.asl(Mode::ZeroPageX),
 
             0x4a => self.lsr_a(),
-            0x4e => self.lsr(AdressingMode::Absolute),
-            0x5e => self.lsr(AdressingMode::AbsoluteX),
-            0x46 => self.lsr(AdressingMode::ZeroPage),
-            0x56 => self.lsr(AdressingMode::ZeroPageX),
+            0x4e => self.lsr(Mode::Absolute),
+            0x5e => self.lsr(Mode::AbsoluteXForceClock),
+            0x46 => self.lsr(Mode::ZeroPage),
+            0x56 => self.lsr(Mode::ZeroPageX),
 
             0x2a => self.rol_a(),
-            0x2e => self.rol(AdressingMode::Absolute),
-            0x3e => self.rol(AdressingMode::AbsoluteX),
-            0x26 => self.rol(AdressingMode::ZeroPage),
-            0x36 => self.rol(AdressingMode::ZeroPageX),
+            0x2e => self.rol(Mode::Absolute),
+            0x3e => self.rol(Mode::AbsoluteXForceClock),
+            0x26 => self.rol(Mode::ZeroPage),
+            0x36 => self.rol(Mode::ZeroPageX),
 
             0x6a => self.ror_a(),
-            0x6e => self.ror(AdressingMode::Absolute),
-            0x7e => self.ror(AdressingMode::AbsoluteX),
-            0x66 => self.ror(AdressingMode::ZeroPage),
-            0x76 => self.ror(AdressingMode::ZeroPageX),
+            0x6e => self.ror(Mode::Absolute),
+            0x7e => self.ror(Mode::AbsoluteXForceClock),
+            0x66 => self.ror(Mode::ZeroPage),
+            0x76 => self.ror(Mode::ZeroPageX),
 
             // logic operations
-            0x29 => self.and(AdressingMode::Immediate),
-            0x2d => self.and(AdressingMode::Absolute),
-            0x3d => self.and(AdressingMode::AbsoluteX),
-            0x39 => self.and(AdressingMode::AbsoluteY),
-            0x25 => self.and(AdressingMode::ZeroPage),
-            0x35 => self.and(AdressingMode::ZeroPageX),
-            0x21 => self.and(AdressingMode::IndirectX),
-            0x31 => self.and(AdressingMode::IndirectY),
+            0x29 => self.and(Mode::Immediate),
+            0x2d => self.and(Mode::Absolute),
+            0x3d => self.and(Mode::AbsoluteX),
+            0x39 => self.and(Mode::AbsoluteY),
+            0x25 => self.and(Mode::ZeroPage),
+            0x35 => self.and(Mode::ZeroPageX),
+            0x21 => self.and(Mode::IndirectX),
+            0x31 => self.and(Mode::IndirectY),
 
-            0x2c => self.bit(AdressingMode::Absolute),
-            0x24 => self.bit(AdressingMode::ZeroPage),
+            0x2c => self.bit(Mode::Absolute),
+            0x24 => self.bit(Mode::ZeroPage),
 
-            0x49 => self.eor(AdressingMode::Immediate),
-            0x4d => self.eor(AdressingMode::Absolute),
-            0x5d => self.eor(AdressingMode::AbsoluteX),
-            0x59 => self.eor(AdressingMode::AbsoluteY),
-            0x45 => self.eor(AdressingMode::ZeroPage),
-            0x55 => self.eor(AdressingMode::ZeroPageX),
-            0x41 => self.eor(AdressingMode::IndirectX),
-            0x51 => self.eor(AdressingMode::IndirectY),
+            0x49 => self.eor(Mode::Immediate),
+            0x4d => self.eor(Mode::Absolute),
+            0x5d => self.eor(Mode::AbsoluteX),
+            0x59 => self.eor(Mode::AbsoluteY),
+            0x45 => self.eor(Mode::ZeroPage),
+            0x55 => self.eor(Mode::ZeroPageX),
+            0x41 => self.eor(Mode::IndirectX),
+            0x51 => self.eor(Mode::IndirectY),
 
-            0x09 => self.ora(AdressingMode::Immediate),
-            0x0d => self.ora(AdressingMode::Absolute),
-            0x1d => self.ora(AdressingMode::AbsoluteX),
-            0x19 => self.ora(AdressingMode::AbsoluteY),
-            0x05 => self.ora(AdressingMode::ZeroPage),
-            0x15 => self.ora(AdressingMode::ZeroPageX),
-            0x01 => self.ora(AdressingMode::IndirectX),
-            0x11 => self.ora(AdressingMode::IndirectY),
+            0x09 => self.ora(Mode::Immediate),
+            0x0d => self.ora(Mode::Absolute),
+            0x1d => self.ora(Mode::AbsoluteX),
+            0x19 => self.ora(Mode::AbsoluteY),
+            0x05 => self.ora(Mode::ZeroPage),
+            0x15 => self.ora(Mode::ZeroPageX),
+            0x01 => self.ora(Mode::IndirectX),
+            0x11 => self.ora(Mode::IndirectY),
 
             // arithmetic operations
-            0x69 => self.adc(AdressingMode::Immediate),
-            0x6d => self.adc(AdressingMode::Absolute),
-            0x7d => self.adc(AdressingMode::AbsoluteX),
-            0x79 => self.adc(AdressingMode::AbsoluteY),
-            0x65 => self.adc(AdressingMode::ZeroPage),
-            0x75 => self.adc(AdressingMode::ZeroPageX),
-            0x61 => self.adc(AdressingMode::IndirectX),
-            0x71 => self.adc(AdressingMode::IndirectY),
+            0x69 => self.adc(Mode::Immediate),
+            0x6d => self.adc(Mode::Absolute),
+            0x7d => self.adc(Mode::AbsoluteX),
+            0x79 => self.adc(Mode::AbsoluteY),
+            0x65 => self.adc(Mode::ZeroPage),
+            0x75 => self.adc(Mode::ZeroPageX),
+            0x61 => self.adc(Mode::IndirectX),
+            0x71 => self.adc(Mode::IndirectY),
 
-            0xe9 => self.sbc(AdressingMode::Immediate),
-            0xed => self.sbc(AdressingMode::Absolute),
-            0xfd => self.sbc(AdressingMode::AbsoluteX),
-            0xf9 => self.sbc(AdressingMode::AbsoluteY),
-            0xe5 => self.sbc(AdressingMode::ZeroPage),
-            0xf5 => self.sbc(AdressingMode::ZeroPageX),
-            0xe1 => self.sbc(AdressingMode::IndirectX),
-            0xf1 => self.sbc(AdressingMode::IndirectY),
+            0xe9 => self.sbc(Mode::Immediate),
+            0xed => self.sbc(Mode::Absolute),
+            0xfd => self.sbc(Mode::AbsoluteX),
+            0xf9 => self.sbc(Mode::AbsoluteY),
+            0xe5 => self.sbc(Mode::ZeroPage),
+            0xf5 => self.sbc(Mode::ZeroPageX),
+            0xe1 => self.sbc(Mode::IndirectX),
+            0xf1 => self.sbc(Mode::IndirectY),
 
-            0xc9 => self.cmp(AdressingMode::Immediate),
-            0xcd => self.cmp(AdressingMode::Absolute),
-            0xdd => self.cmp(AdressingMode::AbsoluteX),
-            0xd9 => self.cmp(AdressingMode::AbsoluteY),
-            0xc5 => self.cmp(AdressingMode::ZeroPage),
-            0xd5 => self.cmp(AdressingMode::ZeroPageX),
-            0xc1 => self.cmp(AdressingMode::IndirectX),
-            0xd1 => self.cmp(AdressingMode::IndirectY),
+            0xc9 => self.cmp(Mode::Immediate),
+            0xcd => self.cmp(Mode::Absolute),
+            0xdd => self.cmp(Mode::AbsoluteX),
+            0xd9 => self.cmp(Mode::AbsoluteY),
+            0xc5 => self.cmp(Mode::ZeroPage),
+            0xd5 => self.cmp(Mode::ZeroPageX),
+            0xc1 => self.cmp(Mode::IndirectX),
+            0xd1 => self.cmp(Mode::IndirectY),
 
-            0xe0 => self.cpx(AdressingMode::Immediate),
-            0xec => self.cpx(AdressingMode::Absolute),
-            0xe4 => self.cpx(AdressingMode::ZeroPage),
+            0xe0 => self.cpx(Mode::Immediate),
+            0xec => self.cpx(Mode::Absolute),
+            0xe4 => self.cpx(Mode::ZeroPage),
 
-            0xc0 => self.cpy(AdressingMode::Immediate),
-            0xcc => self.cpy(AdressingMode::Absolute),
-            0xc4 => self.cpy(AdressingMode::ZeroPage),
+            0xc0 => self.cpy(Mode::Immediate),
+            0xcc => self.cpy(Mode::Absolute),
+            0xc4 => self.cpy(Mode::ZeroPage),
 
             // increment
-            0xee => self.inc(AdressingMode::Absolute),
-            0xfe => self.inc(AdressingMode::AbsoluteX),
-            0xe6 => self.inc(AdressingMode::ZeroPage),
-            0xf6 => self.inc(AdressingMode::ZeroPageX),
+            0xee => self.inc(Mode::Absolute),
+            0xfe => self.inc(Mode::AbsoluteXForceClock),
+            0xe6 => self.inc(Mode::ZeroPage),
+            0xf6 => self.inc(Mode::ZeroPageX),
 
             0xe8 => self.inx(),
             0xc8 => self.iny(),
 
             // decrement
-            0xce => self.dec(AdressingMode::Absolute),
-            0xde => self.dec(AdressingMode::AbsoluteX),
-            0xc6 => self.dec(AdressingMode::ZeroPage),
-            0xd6 => self.dec(AdressingMode::ZeroPageX),
+            0xce => self.dec(Mode::Absolute),
+            0xde => self.dec(Mode::AbsoluteXForceClock),
+            0xc6 => self.dec(Mode::ZeroPage),
+            0xd6 => self.dec(Mode::ZeroPageX),
 
             0xca => self.dex(),
             0x88 => self.dey(),
 
             // control operations
-            0x4c => self.jmp(AdressingMode::Absolute),
-            0x6c => self.jmp(AdressingMode::Indirect),
+            0x4c => self.jmp(Mode::Absolute),
+            0x6c => self.jmp(Mode::Indirect),
 
             0x00 => self.brk(),
-            0x20 => self.jsr(AdressingMode::Absolute),
+            0x20 => self.jsr(Mode::Absolute),
             0x40 => self.rti(),
             0x60 => self.rts(),
 
@@ -425,35 +435,35 @@ impl CPU {
 
     // begin instructions!
 
-    fn lda(&mut self, mode: AdressingMode) {
+    fn lda(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.set_flag_zero_negative(data);
         self.a = data;
     }
 
-    fn ldx(&mut self, mode: AdressingMode) {
+    fn ldx(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.set_flag_zero_negative(data);
         self.x = data;
     }
 
-    fn ldy(&mut self, mode: AdressingMode) {
+    fn ldy(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.set_flag_zero_negative(data);
         self.y = data;
     }
 
-    fn sta(&mut self, mode: AdressingMode) {
+    fn sta(&mut self, mode: Mode) {
         let address = self.read_operand_address(mode);
         self.bus.write_byte(address, self.a);
     }
 
-    fn stx(&mut self, mode: AdressingMode) {
+    fn stx(&mut self, mode: Mode) {
         let address = self.read_operand_address(mode);
         self.bus.write_byte(address, self.x);
     }
 
-    fn sty(&mut self, mode: AdressingMode) {
+    fn sty(&mut self, mode: Mode) {
         let address = self.read_operand_address(mode);
         self.bus.write_byte(address, self.y);
     }
@@ -512,7 +522,7 @@ impl CPU {
         return result;
     }
 
-    fn asl(&mut self, mode: AdressingMode) {
+    fn asl(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = self.do_asl(data);
         self.bus.write_byte(address, result);
@@ -529,7 +539,7 @@ impl CPU {
         result
     }
 
-    fn lsr(&mut self, mode: AdressingMode) {
+    fn lsr(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = self.do_lsr(data);
         self.bus.write_byte(address, result);
@@ -546,7 +556,7 @@ impl CPU {
         result
     }
 
-    fn rol(&mut self, mode: AdressingMode) {
+    fn rol(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = self.do_rol(data);
         self.bus.write_byte(address, result);
@@ -563,7 +573,7 @@ impl CPU {
         return result;
     }
 
-    fn ror(&mut self, mode: AdressingMode) {
+    fn ror(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = self.do_ror(data);
         self.bus.write_byte(address, result);
@@ -573,13 +583,13 @@ impl CPU {
         self.a = self.do_ror(self.a);
     }
 
-    fn and(&mut self, mode: AdressingMode) {
+    fn and(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.a &= data;
         self.set_flag_zero_negative(self.a);
     }
 
-    fn bit(&mut self, mode: AdressingMode) {
+    fn bit(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         let result = self.a & data;
 
@@ -588,13 +598,13 @@ impl CPU {
         self.set_flag(Flag::Negative, data & (1 << 7) != 0);
     }
 
-    fn eor(&mut self, mode: AdressingMode) {
+    fn eor(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.a ^= data;
         self.set_flag_zero_negative(self.a);
     }
 
-    fn ora(&mut self, mode: AdressingMode) {
+    fn ora(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.a |= data;
         self.set_flag_zero_negative(self.a);
@@ -614,19 +624,19 @@ impl CPU {
         self.a = result;
     }
 
-    fn adc(&mut self, mode: AdressingMode) {
+    fn adc(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         self.do_adc(data);
     }
 
-    fn sbc(&mut self, mode: AdressingMode) {
+    fn sbc(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
 
         // invert data and use the same code as adc
         self.do_adc(!data);
     }
 
-    fn cmp(&mut self, mode: AdressingMode) {
+    fn cmp(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         let result = self.a - data;
 
@@ -634,7 +644,7 @@ impl CPU {
         self.set_flag_zero_negative(result);
     }
 
-    fn cpx(&mut self, mode: AdressingMode) {
+    fn cpx(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         let result = self.x - data;
 
@@ -642,7 +652,7 @@ impl CPU {
         self.set_flag_zero_negative(result);
     }
 
-    fn cpy(&mut self, mode: AdressingMode) {
+    fn cpy(&mut self, mode: Mode) {
         let (data, _) = self.read_operand(mode);
         let result = self.y - data;
 
@@ -650,7 +660,7 @@ impl CPU {
         self.set_flag_zero_negative(result);
     }
 
-    fn inc(&mut self, mode: AdressingMode) {
+    fn inc(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = data + 1;
 
@@ -668,7 +678,7 @@ impl CPU {
         self.set_flag_zero_negative(self.y);
     }
 
-    fn dec(&mut self, mode: AdressingMode) {
+    fn dec(&mut self, mode: Mode) {
         let (data, address) = self.read_operand(mode);
         let result = data - 1;
 
@@ -686,7 +696,7 @@ impl CPU {
         self.set_flag_zero_negative(self.y);
     }
 
-    fn jmp(&mut self, mode: AdressingMode) {
+    fn jmp(&mut self, mode: Mode) {
         let address = self.read_operand_address(mode);
         self.pc = address;
     }
@@ -700,7 +710,7 @@ impl CPU {
         self.pc = self.bus.read_word(0xfffe);
     }
 
-    fn jsr(&mut self, mode: AdressingMode) {
+    fn jsr(&mut self, mode: Mode) {
         let address = self.read_operand_address(mode);
         let return_address = self.pc - 1;
 
