@@ -1,0 +1,4 @@
+[package]
+name = "nes-core"
+version = "0.0.0"
+authors = ["Calbabreaker <calbabreaker@gmail.com>"]
