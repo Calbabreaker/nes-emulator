@@ -287,13 +287,13 @@ impl CPU {
             0x9a => self.txs(),
             0x98 => self.tya(),
 
-            // stack operations
+            // stack
             0x48 => self.pha(),
             0x08 => self.php(),
             0x68 => self.pla(),
             0x28 => self.plp(),
 
-            // shift and rotate operations
+            // shift and rotate
             0x0a => self.asl_a(),
             0x0e => self.asl(Mode::Absolute),
             0x1e => self.asl(Mode::AbsoluteXForceClock),
@@ -318,7 +318,7 @@ impl CPU {
             0x66 => self.ror(Mode::ZeroPage),
             0x76 => self.ror(Mode::ZeroPageX),
 
-            // logic operations
+            // logic
             0x29 => self.and(Mode::Immediate),
             0x2d => self.and(Mode::Absolute),
             0x3d => self.and(Mode::AbsoluteX),
@@ -349,7 +349,7 @@ impl CPU {
             0x01 => self.ora(Mode::IndirectX),
             0x11 => self.ora(Mode::IndirectY),
 
-            // arithmetic operations
+            // arithmetic
             0x69 => self.adc(Mode::Immediate),
             0x6d => self.adc(Mode::Absolute),
             0x7d => self.adc(Mode::AbsoluteX),
@@ -403,7 +403,7 @@ impl CPU {
             0xca => self.dex(),
             0x88 => self.dey(),
 
-            // control operations
+            // controls
             0x4c => self.jmp(Mode::Absolute),
             0x6c => self.jmp(Mode::Indirect),
 
@@ -412,7 +412,7 @@ impl CPU {
             0x40 => self.rti(),
             0x60 => self.rts(),
 
-            // branch operations
+            // branches
             0x90 => self.bcc(),
             0xb0 => self.bcs(),
             0xf0 => self.beq(),
@@ -422,7 +422,7 @@ impl CPU {
             0x50 => self.bvc(),
             0x70 => self.bvs(),
 
-            // // flag operations
+            // flags
             0x18 => self.clc(),
             0xd8 => self.cld(),
             0x58 => self.cli(),
@@ -434,6 +434,24 @@ impl CPU {
             // does nothing
             0xea => self.nop(),
 
+            // undocumented opcodes
+
+            // register loads and stores
+            0xbb => self.las(Mode::AbsoluteY),
+
+            0xa7 => self.lax(Mode::ZeroPage),
+            0xb7 => self.lax(Mode::ZeroPageY),
+            0xa3 => self.lax(Mode::IndirectX),
+            0xb3 => self.lax(Mode::IndirectY),
+            0xaf => self.lax(Mode::Absolute),
+            0xbf => self.lax(Mode::AbsoluteY),
+
+            0x8f => self.sax(Mode::Absolute),
+            0x87 => self.sax(Mode::ZeroPage),
+            0x97 => self.sax(Mode::ZeroPageX),
+            0x83 => self.sax(Mode::IndirectX),
+
+            // register loads
             _ => panic!(
                 "Instruction with opcode '0x{:x}' not supported! PC: {}",
                 opcode, self.pc
@@ -730,6 +748,7 @@ impl CPU {
 
         let flags = self.flags | Flag::Break as u8;
         self.push_byte(flags);
+        self.bus.clock();
 
         self.pc = self.bus.read_word(0xfffe);
     }
@@ -837,5 +856,25 @@ impl CPU {
 
     fn nop(&mut self) {
         self.bus.clock();
+    }
+
+    fn las(&mut self, mode: Mode) {
+        let data = self.read_operand(mode).0;
+        let result = data & self.sp;
+        self.a = result;
+        self.x = result;
+        self.sp = result;
+        self.set_flag_zero_negative(result);
+    }
+
+    fn lax(&mut self, mode: Mode) {
+        self.lda(mode);
+        self.x = self.a;
+    }
+
+    fn sax(&mut self, mode: Mode) {
+        let address = self.read_operand_address(mode);
+        let result = self.a & self.x;
+        self.bus.write_byte(address, result);
     }
 }

@@ -1,5 +1,9 @@
-pub mod bus;
-pub mod cpu;
+mod bus;
+mod catridge;
+mod cpu;
+mod ppu;
 
-pub use bus::Bus;
-pub use cpu::CPU;
+pub use bus::*;
+pub use catridge::*;
+pub use cpu::*;
+pub use ppu::*;
