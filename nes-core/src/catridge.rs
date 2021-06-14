@@ -1,11 +1,21 @@
-pub struct Catridge {
-    program_memory: Box<u8>,
-    character_memory: Box<u8>,
+use crate::mappers::*;
 
-    program_banks: u8,
-    character_banks: u8,
+pub struct Catridge {
+    mapper: Box<dyn Mapper>,
+    prg_memory: Box<u8>,
+    chr_memory: Box<u8>,
 }
 
 impl Catridge {
-    pub fn new(filepath: &str) {}
+    pub fn new(data: &[u8]) {
+        let mapper_id = data[7] & 0xf0 | data[6] >> 4;
+
+        let mapper = match mapper_id {
+            0 => Mapper0::new(),
+        }
+
+        // Catridge {
+        //     header
+        // }
+    }
 }
